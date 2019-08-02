@@ -15,6 +15,8 @@ interactive=1
 script=
 port=8820
 
+[ -f env.sh ] && . env.sh
+
 build() {
 	docker build \
 		${target:+--target $target} \

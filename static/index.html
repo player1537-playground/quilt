@@ -11,23 +11,102 @@
 <script src="https://rawcdn.githack.com/mrdoob/three.js/954e0e738cfb813357ce57b49b254366134b5b3a/build/three.min.js"></script>
 <script src="https://rawcdn.githack.com/mrdoob/three.js/954e0e738cfb813357ce57b49b254366134b5b3a/examples/js/controls/OrbitControls.js"></script>
 <script>
+THREE.OSPRenderer = function () {
+	var domElement = document.createElement( 'img' );
 
+	this.domElement = domElement;
+
+	var worldPosition = new THREE.Vector3();
+	var worldDirection = new THREE.Vector3();
+	var worldUp = new THREE.Vector3();
+	var _quality = 512;
+
+	this.setSize = function ( width, height ) {
+		if ( width !== height ) {
+			console.error( 'Expected same width and height; defaulting to width' );
+			width = Math.max( width, height );
+		}
+		_quality = width;
+	};
+
+	var encodeObject = function ( object, parts ) {
+		if ( object.type === 'SphereGeometry' || object.type === 'SphereBufferGeometry' ) {
+			object.getWorldPosition( worldPosition );
+			parts.push( 'sphere', worldPosition.x, worldPosition.y, worldPosition.z, object.parameters.radius );
+		}
+
+		for ( var i = 0, l = object.children.length; i < l; ++i ) {
+			encodeObject( object.children[ i ], parts );
+		}
+	};
+
+	var encodeScene = function ( scene ) {
+		var parts = ['scene'];
+		encodeSceneRecurse( scene, parts );
+		return parts.join(',');
+	};
+
+	var encodeCamera = function ( camera ) {
+		camera.getWorldDirection( worldDirection );
+		camera.getWorldPosition( worldPosition );
+		worldUp.set( 0, 1, 0 );
+
+		var parts = [
+			worldPosition.x, worldPosition.y, worldPosition.z,
+			worldUp.x, worldUp.y, worldUp.z,
+			worldDirection.x, worldDirection.y, worldDirection.z,
+		];
+		
+		return parts.join('/');
+	};
+
+	var asyncRenderPromise = null;
+
+	var asyncRender = async function ( scene, camera ) {
+		var parts = [
+			'image',
+			'scene',
+			encodeCamera( camera ),
+			_quality,
+			'tiling,0-1',
+		];
+
+		var url = parts.join('/');
+
+		return new Promise( function ( resolve, reject ) {
+			domElement.onload = resolve;
+			domElement.onerror = reject;
+			domElement.src = url;
+		});
+	};
+
+	var afterRender = function() {
+		asyncRenderPromise = null;
+	};
+
+	this.render = function ( scene, camera ) {
+		if (asyncRenderPromise !== null) {
+			return false;
+		}
+
+		asyncRenderPromise = asyncRender( scene, camera ).then( afterRender );
+
+		return true;
+	};
+};
 </script>
 <script>
+const width = 256;
+const height = width;
 
-</script>
-<script>
-const width = window.innerWidth;
-const height = window.innerHeight;
-
-const renderer = new THREE.WebGLRenderer();
+const renderer = new THREE.OSPRenderer();
 renderer.setSize(width, height);
 document.body.appendChild(renderer.domElement);
 
 const camera = new THREE.OrthographicCamera(-width/2, width/2, height/2, -height/2, 0.01, 10000);
 camera.position.set(0, 0, 1000);
 
-const controls = new THREE.OrbitControls(camera);
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
 
 const scene = new THREE.Scene();
 
@@ -44,7 +123,6 @@ step();
 function step() {
 	requestAnimationFrame(step);
 	controls.update();
-	renderer.clear();
 	renderer.render(scene, camera);
 }
 </script>
