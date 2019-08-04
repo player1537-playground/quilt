@@ -129,13 +129,18 @@ class RequestHandler(SimpleHTTPRequestHandler):
 		ux, uy, uz = map(float, (ux, uy, uz))
 		vx, vy, vz = map(float, (vx, vy, vz))
 		quality = int(quality)
+
+		sx, sy, sz, sr = [], [], [], []
 		
 		it = iter(what.split(','))
 		type = next(it)
 		if type == 'scene':
 			for k in it:
-				if False:
-					pass
+				if k == 'sphere':
+					sx.append(float(next(it)))
+					sy.append(float(next(it)))
+					sz.append(float(next(it)))
+					sr.append(float(next(it)))
 				else:
 					print(f'bad scene type {k!r}')
 					raise NotImplementedError
@@ -157,8 +162,13 @@ class RequestHandler(SimpleHTTPRequestHandler):
 		
 		query = (
 			b'%f %f %f %f %f %f %f %f %f %d '
+			b'%d %s '
 		) % (
 			x, y, z, ux, uy, uz, vx, vy, vz, quality,
+			len(sx), b''.join(
+				b'%f %f %f %f ' % parts
+				for parts in zip(sx, sy, sz, sr)
+			),
 		)
 		
 		with _g_subprocess.lock:

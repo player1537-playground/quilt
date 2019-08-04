@@ -603,6 +603,31 @@ makePreloadedGeometries(OSPModel **out_models) {
 }
 
 
+void
+parseSpheres(OSPModel model, FILE *input) {
+	int i, nspheres;
+	float sx, sy, sz, sr;
+	OSPGeometry sphere;
+	OSPMaterial material;
+
+	if (fscanf(input, "%d", &nspheres) != 1) {
+		// please no
+	}
+
+	for (i=0; i<nspheres; ++i) {
+		if (fscanf(input, "%f %f %f %f", &sx, &sy, &sz, &sr) != 4) {
+			// oof
+		}
+
+		sphere = makeBallGeometry(sx, sy, sz, sr);
+		material = makeBasicMaterial(1.0, 0.0, 1.0);
+		ospSetMaterial(sphere, material);
+		ospCommit(sphere);
+		ospAddGeometry(model, sphere);
+	}
+}
+
+
 int
 main(int argc, const char **argv) {
 	FILE *input, *info, *error, *output;
@@ -688,12 +713,13 @@ main(int argc, const char **argv) {
 			fflush(output);
 			continue;
 		}
-		
+
 		fprintf(info, "Got request\n");
-		
+
 		model = ospNewModel();
+		parseSpheres(model, input);
 		ospCommit(model);
-		
+
 		ospSetObject(renderer, "model", model);
 		ospCommit(renderer);
 		
