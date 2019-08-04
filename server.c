@@ -603,6 +603,34 @@ makePreloadedGeometries(OSPModel **out_models) {
 }
 
 
+OSPMaterial
+parseBasicMaterial(FILE *input) {
+	OSPMaterial material;
+	float r, g, b;
+
+	if (fscanf(input, "%f %f %f", &r, &g, &b) != 3) {
+		return NULL;
+	}
+
+	material = makeBasicMaterial(r, g, b);
+
+	return material;
+}
+
+OSPGeometry
+parseSphere(FILE *input) {
+	float sx, sy, sz, sr;
+	OSPGeometry geometry;
+
+	if (fscanf(input, "%f %f %f %f", &sx, &sy, &sz, &sr) != 4) {
+		exit(1);
+	}
+
+	geometry = makeBallGeometry(sx, sy, sz, sr);
+	return geometry;
+}
+
+
 void
 parseSpheres(OSPModel model, FILE *input) {
 	int i, nspheres;
@@ -619,8 +647,9 @@ parseSpheres(OSPModel model, FILE *input) {
 			// oof
 		}
 
+		material = parseBasicMaterial(input);
+
 		sphere = makeBallGeometry(sx, sy, sz, sr);
-		material = makeBasicMaterial(1.0, 0.0, 1.0);
 		ospSetMaterial(sphere, material);
 		ospCommit(sphere);
 		ospAddGeometry(model, sphere);
@@ -701,23 +730,42 @@ main(int argc, const char **argv) {
 	
 	fprintf(info, "Entering render loop\n");
 	for (;;) {
+		int i;
 		OSPModel model;
+		OSPGeometry geometry;
+		OSPMaterial material;
 		float px, py, pz, ux, uy, uz, vx, vy, vz;
 		int quality;
+		int nsphere;
 		
 		fprintf(info, "Waiting for request...\n");
 		
 		if (fscanf(input, "%f %f %f %f %f %f %f %f %f %d", &px, &py, &pz, &ux, &uy, &uz, &vx, &vy, &vz, &quality) != 10) {
+error:
 			fprintf(error, "Error: bad format\n");
 			fprintf(output, "9:error arg,");
 			fflush(output);
 			continue;
 		}
 
+		if (fscanf(input, "%d", &nsphere) != 1) {
+			goto error;
+		}
+
 		fprintf(info, "Got request\n");
 
 		model = ospNewModel();
-		parseSpheres(model, input);
+		
+		for (i=0; i<nsphere; ++i) {
+			geometry = parseSphere(input);
+			material = parseBasicMaterial(input);
+			
+			ospSetMaterial(geometry, material);
+			ospCommit(geometry);
+
+			ospAddGeometry(model, geometry);
+		}
+
 		ospCommit(model);
 
 		ospSetObject(renderer, "model", model);

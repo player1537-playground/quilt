@@ -19,54 +19,6 @@ from PIL import Image
 _g_subprocess: Subprocess = None
 
 
-Index = NewType('Index', int)
-Name = NewType('Name', str)
-Row = NewType('Row', str)
-
-
-@dataclass
-class Assets:
-	by_index: List[Row]
-	by_name: Dict[Name, Index]
-	tag: ClassVar[str] = None
-
-	@classmethod
-	def from_file(cls, path: Path) -> Assets:
-		by_index = []
-		by_name = {}
-
-		with open(path, 'r') as f:
-			it = (x.rstrip() for x in f if x != '')
-			for i, line in enumerate(it):
-				name = line.split()[0]
-
-				by_index.append(line)
-				by_name[name] = i
-		
-		return cls(by_index, by_name)
-	
-	@property
-	def env(self) -> Dict[str, str]:
-		env = {}
-		for i, line in enumerate(self.by_index):
-			env[f'{self.tag}_{i}'] = line
-		env[f'n{self.tag}'] = str(len(env))
-		return env
-	
-	def lookup(self, name) -> Index:
-		return self.by_name[name]
-
-
-@dataclass
-class Materials(Assets):
-	tag: ClassVar[str] = 'mat'
-
-
-@dataclass
-class Objs(Assets):
-	tag: ClassVar[str] = 'obj'
-
-
 @dataclass
 class Subprocess:
 	process: Popen
@@ -130,7 +82,8 @@ class RequestHandler(SimpleHTTPRequestHandler):
 		vx, vy, vz = map(float, (vx, vy, vz))
 		quality = int(quality)
 
-		sx, sy, sz, sr = [], [], [], []
+		sx, sy, sz, sR = [], [], [], []
+		sr, sg, sb = [], [], []
 		
 		it = iter(what.split(','))
 		type = next(it)
@@ -140,7 +93,10 @@ class RequestHandler(SimpleHTTPRequestHandler):
 					sx.append(float(next(it)))
 					sy.append(float(next(it)))
 					sz.append(float(next(it)))
+					sR.append(float(next(it)))
 					sr.append(float(next(it)))
+					sg.append(float(next(it)))
+					sb.append(float(next(it)))
 				else:
 					print(f'bad scene type {k!r}')
 					raise NotImplementedError
@@ -166,8 +122,8 @@ class RequestHandler(SimpleHTTPRequestHandler):
 		) % (
 			x, y, z, ux, uy, uz, vx, vy, vz, quality,
 			len(sx), b''.join(
-				b'%f %f %f %f ' % parts
-				for parts in zip(sx, sy, sz, sr)
+				b'%f %f %f %f %f %f %f' % parts
+				for parts in zip(sx, sy, sz, sR, sr, sg, sb)
 			),
 		)
 		

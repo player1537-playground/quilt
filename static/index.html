@@ -32,13 +32,29 @@ THREE.OSPRenderer = function () {
 	var encodeGeometry = function ( object, geometry, parts ) {
 		if ( geometry.type === 'SphereGeometry' || geometry.type === 'SphereBufferGeometry' ) {
 			object.getWorldPosition( worldPosition );
-			parts.push( 'sphere', worldPosition.x, worldPosition.y, worldPosition.z, geometry.parameters.radius );
+			parts.push( 'sphere' );
+			parts.push( worldPosition.x, worldPosition.y, worldPosition.z, geometry.parameters.radius );
+			return;
 		}
+
+		throw 'Unknown geometry: ' + geometry.type;
+	};
+
+	var encodeMaterial = function ( object, material, parts ) {
+		if ( material.type === 'MeshBasicMaterial' ) {
+			if ( material.color && !material.map ) {
+				parts.push( material.color.r, material.color.g, material.color.b );
+				return;
+			}
+		}
+
+		throw 'Unknown material: ' + material.type;
 	};
 
 	var encodeObject = function ( object, parts ) {
 		if ( object.type === 'Mesh' ) {
 			encodeGeometry( object, object.geometry, parts );
+			encodeMaterial( object, object.material, parts );
 		}
 
 		for ( var i = 0, l = object.children.length; i < l; ++i ) {
@@ -120,7 +136,7 @@ for (let i=0; i<10; i+=3)
 for (let j=0; j<10; j+=3)
 for (let k=0; k<10; k+=3) {
 	const geometry = new THREE.SphereBufferGeometry(0.05);
-	const material = new THREE.MeshBasicMaterial({ color: 0xff00ff, side: THREE.DoubleSide });
+	const material = new THREE.MeshBasicMaterial({ color: new THREE.Color(i / 10, j / 10, k / 10), side: THREE.DoubleSide });
 	const mesh = new THREE.Mesh(geometry, material);
 	mesh.position.set((i-5)/10, (j-5)/10, (k-5)/10);
 	scene.add(mesh);
