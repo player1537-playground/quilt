@@ -22,6 +22,7 @@ THREE.OSPRenderer = function ( numColumns ) {
 	var worldDirection = new THREE.Vector3();
 	var worldUp = new THREE.Vector3();
 	var _quality = 512;
+	var _size = _quality;
 	var _numColumns = numColumns;
 
 	var resetDomElement = function() {
@@ -29,16 +30,16 @@ THREE.OSPRenderer = function ( numColumns ) {
 			domElement.removeChild( domElement.firstChild );
 		}
 
-		domElement.style.width = _quality + 'px';
-		domElement.style.height = _quality + 'px';
+		domElement.style.width = _size + 'px';
+		domElement.style.height = _size + 'px';
 
 		imageElements = [];
 		var image;
 		for ( let i = 0; i < _numColumns; ++i ) {
 			for ( let j = 0; j < _numColumns; ++j ) {
 				image = document.createElement( 'img' );
-				//image.style.width = ( _quality / _numColumns ) + 'px';
-				//image.style.height = ( _quality / _numColumns ) + 'px';
+				image.style.width = ( _size / _numColumns ) + 'px';
+				image.style.height = ( _size / _numColumns ) + 'px';
 				image.style.float = 'left';
 				domElement.appendChild( image );
 				imageElements.push( image );
@@ -49,12 +50,21 @@ THREE.OSPRenderer = function ( numColumns ) {
 	resetDomElement();
 	this.domElement = domElement;
 
+	this.setQuality = function ( quality ) {
+		_quality = quality;
+		resetDomElement();
+	};
+
 	this.setSize = function ( width, height ) {
+		if ( height === undefined ) {
+			height = width;
+		}
+
 		if ( width !== height ) {
-			console.error( 'Expected same width and height; defaulting to width' );
+			console.error( 'Expected same width and height' );
 			width = Math.max( width, height );
 		}
-		_quality = width;
+		_size = width;
 		resetDomElement();
 	};
 
@@ -166,11 +176,13 @@ THREE.OSPRenderer = function ( numColumns ) {
 };
 </script>
 <script>
-const width = 256;
-const height = width;
+const quality = 64;
+const numColumns = 1;
+const width = height = 256;
 
-const renderer = new THREE.OSPRenderer( 2 );
+const renderer = new THREE.OSPRenderer(numColumns);
 renderer.setSize(width, height);
+renderer.setQuality(quality);
 document.body.appendChild(renderer.domElement);
 
 const camera = new THREE.OrthographicCamera(-width/2, width/2, height/2, -height/2, 0.01, 10000);

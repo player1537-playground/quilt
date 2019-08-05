@@ -763,6 +763,9 @@ error:
 			ospCommit(geometry);
 
 			ospAddGeometry(model, geometry);
+
+			ospRelease(geometry);
+			ospRelease(material);
 		}
 
 		ospCommit(model);
