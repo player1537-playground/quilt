@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 tag=quilt:$USER
-name=quilt_service
+name=quilt_$USER
 target=base
 data=/mnt/seenas2/data
 registry=accona.eecs.utk.edu:5000
@@ -50,17 +50,26 @@ script() {
 	interactive= script=1 run "$@"
 }
 
+network() {
+	docker network create \
+		--driver overlay \
+		${net:?}
+}
+
 push() {
-	docker tag $tag $registry/$tag
-	docker push $registry/$tag
+	docker tag $tag ${registry:?}/$tag
+	docker push ${registry:?}/$tag
 }
 
 create() {
 	docker service create \
-		--name $name \
-		--mount type=bind,src=$PWD,dst=$PWD \
+		${name:+--name $name} \
+		${net:+--network=$net} \
+		${cwd:+--mount type=bind,src=$PWD,dst=$PWD} \
 		${data:+--mount type=bind,src=$data,dst=$data} \
-		$registry/$tag "$@"
+		${port:+-p $port:$port} \
+		${registry:?}/$tag \
+		"$@"
 }
 
 destroy() {

@@ -11,15 +11,43 @@
 <script src="https://rawcdn.githack.com/mrdoob/three.js/954e0e738cfb813357ce57b49b254366134b5b3a/build/three.min.js"></script>
 <script src="https://rawcdn.githack.com/mrdoob/three.js/954e0e738cfb813357ce57b49b254366134b5b3a/examples/js/controls/OrbitControls.js"></script>
 <script>
-THREE.OSPRenderer = function () {
-	var domElement = document.createElement( 'img' );
+THREE.OSPRenderer = function ( numColumns ) {
+	if ( numColumns === undefined ) {
+		numColumns = 1;
+	}
 
-	this.domElement = domElement;
-
+	var domElement = document.createElement( 'div' );
+	var imageElements = [];
 	var worldPosition = new THREE.Vector3();
 	var worldDirection = new THREE.Vector3();
 	var worldUp = new THREE.Vector3();
 	var _quality = 512;
+	var _numColumns = numColumns;
+
+	var resetDomElement = function() {
+		while ( domElement.firstChild ) {
+			domElement.removeChild( domElement.firstChild );
+		}
+
+		domElement.style.width = _quality + 'px';
+		domElement.style.height = _quality + 'px';
+
+		imageElements = [];
+		var image;
+		for ( let i = 0; i < _numColumns; ++i ) {
+			for ( let j = 0; j < _numColumns; ++j ) {
+				image = document.createElement( 'img' );
+				//image.style.width = ( _quality / _numColumns ) + 'px';
+				//image.style.height = ( _quality / _numColumns ) + 'px';
+				image.style.float = 'left';
+				domElement.appendChild( image );
+				imageElements.push( image );
+			}
+		}
+	};
+
+	resetDomElement();
+	this.domElement = domElement;
 
 	this.setSize = function ( width, height ) {
 		if ( width !== height ) {
@@ -27,6 +55,12 @@ THREE.OSPRenderer = function () {
 			width = Math.max( width, height );
 		}
 		_quality = width;
+		resetDomElement();
+	};
+
+	this.setColumns = function ( numColumns ) {
+		_numColumns = numColumns;
+		resetDomElement();
 	};
 
 	var encodeGeometry = function ( object, geometry, parts ) {
@@ -82,24 +116,38 @@ THREE.OSPRenderer = function () {
 		return parts.join('/');
 	};
 
+	var loadImage = function ( url, image ) {
+		if ( image === undefined ) {
+			image = document.createElement( 'img' );
+		}
+
+		return new Promise( function ( resolve, reject ) {
+			image.onload = resolve;
+			image.onerror = reject;
+			image.src = url;
+		});
+	}
+
 	var asyncRenderPromise = null;
 
 	var asyncRender = async function ( scene, camera ) {
+		var numTiles = _numColumns * _numColumns;
+
 		var parts = [
 			'image',
 			encodeScene( scene ),
 			encodeCamera( camera ),
 			_quality,
-			'tiling,0-1',
 		];
 
-		var url = parts.join('/');
-
-		return new Promise( function ( resolve, reject ) {
-			domElement.onload = resolve;
-			domElement.onerror = reject;
-			domElement.src = url;
-		});
+		var promises = [];
+		for ( let i = 0; i < numTiles; ++i ) {
+			var url = parts.join('/') + '/tiling,' + i + '-' + numTiles;
+			var promise = loadImage( url, imageElements[ i ] );
+			promises.push( promise );
+		}
+		
+		return Promise.all( promises );
 	};
 
 	var afterRender = function() {
@@ -121,7 +169,7 @@ THREE.OSPRenderer = function () {
 const width = 256;
 const height = width;
 
-const renderer = new THREE.OSPRenderer();
+const renderer = new THREE.OSPRenderer( 2 );
 renderer.setSize(width, height);
 document.body.appendChild(renderer.domElement);
 

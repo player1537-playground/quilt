@@ -730,25 +730,24 @@ main(int argc, const char **argv) {
 	
 	fprintf(info, "Entering render loop\n");
 	for (;;) {
-		int i;
+		int i, rv;
 		OSPModel model;
 		OSPGeometry geometry;
 		OSPMaterial material;
 		float px, py, pz, ux, uy, uz, vx, vy, vz;
-		int quality;
+		int quality, tile_index, n_cols;
 		int nsphere;
 		
 		fprintf(info, "Waiting for request...\n");
-		
-		if (fscanf(input, "%f %f %f %f %f %f %f %f %f %d", &px, &py, &pz, &ux, &uy, &uz, &vx, &vy, &vz, &quality) != 10) {
+		if ((rv = fscanf(input, "%f %f %f %f %f %f %f %f %f %d %d %d", &px, &py, &pz, &ux, &uy, &uz, &vx, &vy, &vz, &quality, &tile_index, &n_cols)) != 12) {
 error:
-			fprintf(error, "Error: bad format\n");
+			fprintf(error, "Error: bad format, got %d args\n", rv);
 			fprintf(output, "9:error arg,");
 			fflush(output);
-			continue;
+			break;
 		}
 
-		if (fscanf(input, "%d", &nsphere) != 1) {
+		if ((rv = fscanf(input, "%d", &nsphere)) != 1) {
 			goto error;
 		}
 
@@ -776,6 +775,21 @@ error:
 		ospSet3f(camera, "pos", px, py, pz);
 		ospSet3f(camera, "up", ux, uy, uz);
 		ospSet3f(camera, "dir", vx, vy, vz);
+		{
+			int tile_x, tile_y;
+			float left, right, top, bottom;
+
+			tile_x = tile_index % n_cols;
+			tile_y = tile_index / n_cols;
+
+			right = ((float)tile_x + 1) / n_cols;
+			top = ((float)n_cols - tile_y) / n_cols;
+			left = ((float)tile_x) / n_cols;
+			bottom = ((float)n_cols - tile_y - 1) / n_cols;
+
+			ospSet2f(camera, "imageStart", left, top);
+			ospSet2f(camera, "imageEnd", right, bottom);
+		}
 		ospCommit(camera);
 		
 		fprintf(info, "Creating Frame Buffer\n");

@@ -115,17 +115,21 @@ class RequestHandler(SimpleHTTPRequestHandler):
 		bgcolor = tuple(map(int, options.get('bgcolor', '255-255-255-255').split('-')))
 		num_tiles = int(num_tiles)
 		n_cols = int(sqrt(num_tiles))
+
+		tile_quality = int(quality // n_cols)
 		
 		query = (
-			b'%f %f %f %f %f %f %f %f %f %d '
+			b'%f %f %f %f %f %f %f %f %f %d %d %d '
 			b'%d %s '
 		) % (
-			x, y, z, ux, uy, uz, vx, vy, vz, quality,
+			x, y, z, ux, uy, uz, vx, vy, vz, tile_quality, tile_index, n_cols,
 			len(sx), b''.join(
 				b'%f %f %f %f %f %f %f' % parts
 				for parts in zip(sx, sy, sz, sR, sr, sg, sb)
 			),
 		)
+
+		print(repr(query))
 		
 		with _g_subprocess.lock:
 			_g_subprocess.submit(query)
@@ -134,7 +138,7 @@ class RequestHandler(SimpleHTTPRequestHandler):
 		if b'error' in data:
 			print(data)
 
-		image = Image.frombytes('RGBA', (quality, quality), data, 'raw', 'RGBA', 0, 1)
+		image = Image.frombytes('RGBA', (tile_quality, tile_quality), data, 'raw', 'RGBA', 0, 1)
 		canvas = Image.new('RGBA', image.size, bgcolor)
 		canvas.paste(image, mask=image)
 		buffer = BytesIO()
