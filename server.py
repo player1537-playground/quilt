@@ -13,10 +13,14 @@ from threading import Lock
 from math import sqrt
 from pathlib import Path
 from typing import NewType
+from uuid import uuid4
 from PIL import Image
 
 
 _g_subprocess: Subprocess = None
+_g_buffers: Buffers = None
+
+UUID = NewType('UUID', str)
 
 
 @dataclass
@@ -57,6 +61,35 @@ class Subprocess:
 		return rest + data
 
 
+@dataclass
+class Buffer:
+	id: UUID
+	data: bytes
+
+	def __post_init__(self):
+		buffer = self.data
+		print(buffer[0], buffer[1], buffer[2], buffer[3])
+
+
+@dataclass
+class Buffers:
+	lookup: Dict[UUID, Buffer]
+
+	@classmethod
+	def create(cls) -> Buffers:
+		lookup = {}
+		return cls(lookup)
+
+	def __getitem__(self, id: UUID) -> Buffer:
+		return self.lookup[id]
+	
+	def add(self, data: bytes) -> Buffer:
+		id = str(uuid4())
+		buffer = Buffer(id, data)
+		self.lookup[id] = buffer
+		return buffer
+
+
 class RequestHandler(SimpleHTTPRequestHandler):
 	protocol_version = 'HTTP/1.1'
 
@@ -84,6 +117,9 @@ class RequestHandler(SimpleHTTPRequestHandler):
 
 		sx, sy, sz, sR = [], [], [], []
 		sr, sg, sb = [], [], []
+
+		trivert, trinorm, triuv, triindex = [], [], [], []
+		trir, trig, trib = [], [], []
 		
 		it = iter(what.split(','))
 		type = next(it)
@@ -97,6 +133,14 @@ class RequestHandler(SimpleHTTPRequestHandler):
 					sr.append(float(next(it)))
 					sg.append(float(next(it)))
 					sb.append(float(next(it)))
+				elif k == 'triangles':
+					trivert.append(_g_buffers[next(it)])
+					trinorm.append(_g_buffers[next(it)])
+					triuv.append(_g_buffers[next(it)])
+					triindex.append(_g_buffers[next(it)])
+					trir.append(float(next(it)))
+					trig.append(float(next(it)))
+					trib.append(float(next(it)))
 				else:
 					print(f'bad scene type {k!r}')
 					raise NotImplementedError
@@ -121,15 +165,24 @@ class RequestHandler(SimpleHTTPRequestHandler):
 		query = (
 			b'%f %f %f %f %f %f %f %f %f %d %d %d '
 			b'%d %s '
+			b'%d %s '
 		) % (
 			x, y, z, ux, uy, uz, vx, vy, vz, tile_quality, tile_index, n_cols,
 			len(sx), b''.join(
 				b'%f %f %f %f %f %f %f' % parts
 				for parts in zip(sx, sy, sz, sR, sr, sg, sb)
 			),
+			len(trivert), b''.join(
+				b''.join([
+					b'%d %s ' % (len(trivert.data), trivert.data),
+					b'%d %s ' % (len(trinorm.data), trinorm.data),
+					b'%d %s ' % (len(triuv.data), triuv.data),
+					b'%d %s ' % (len(triindex.data), triindex.data),
+					b'%f %f %f ' % (trir, trig, trib),
+				])
+				for trivert, trinorm, triuv, triindex, trir, trig, trib in zip(trivert, trinorm, triuv, triindex, trir, trig, trib)
+			),
 		)
-
-		print(repr(query))
 		
 		with _g_subprocess.lock:
 			_g_subprocess.submit(query)
@@ -147,6 +200,25 @@ class RequestHandler(SimpleHTTPRequestHandler):
 		content = buffer.getvalue()
 
 		self.send('image/png', content)
+	
+	def do_POST(self):
+		length = self.headers['content-length']
+		nbytes = int(length)
+		data = self.rfile.read(nbytes)
+		# throw away extra data? see Lib/http.server.py:1203-1204
+		self.data = data
+
+		if self.path == '/buffer/':
+			self.do_POST_buffer()
+		else:
+			print('POST', self.path)
+			raise NotImplementedError
+	
+	def do_POST_buffer(self):
+		data = self.data
+		buffer = _g_buffers.add(data)
+		content = buffer.id.encode('utf-8')
+		self.send('text/plain', content)
 	
 	def send(self, content_type, content):
 		connection = self.headers['connection']
@@ -169,12 +241,17 @@ class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
 
 
 def main(bind, port, exe):
+	buffers = Buffers.create()
+
 	env = {}
 
 	subprocess = Subprocess.create(exe, env=env)
 	
 	global _g_subprocess
 	_g_subprocess = subprocess
+
+	global _g_buffers
+	_g_buffers = buffers
 	
 	address = (bind, port)
 	print(f'Listening on {address!r}')

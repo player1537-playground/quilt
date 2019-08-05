@@ -22,7 +22,7 @@ makeMirrorMaterial(void) {
 	k = (osp_vec3f){ 3.5, 2.5, 2.4 };
 	roughness = 0.5;
 	
-	material = ospNewMaterial2("pathtracer", "Metal");
+	material = ospNewMaterial2("scivis", "Metal");
 	ospSet3fv(material, "eta", (float *)&eta);
 	ospSet3fv(material, "k", (float *)&k);
 	ospSet1f(material, "roughness", roughness);
@@ -432,7 +432,7 @@ makeLuminousMaterial(void) {
 	color = (osp_vec3f){ 1.0, 0.0, 1.0 };
 	intensity = 0.5;
 	
-	material = ospNewMaterial2("pathtracer", "Luminous");
+	material = ospNewMaterial2("scivis", "Luminous");
 	ospSet3fv(material, "color", (float *)&color);
 	ospSet1f(material, "intensity", intensity);
 	ospCommit(material);
@@ -448,7 +448,7 @@ makeBasicMaterial(float r, float g, float b) {
 	
 	Kd = (osp_vec3f){ r, g, b };
 	
-	material = ospNewMaterial2("pathtracer", "OBJMaterial");
+	material = ospNewMaterial2("scivis", "OBJMaterial");
 	ospSet3fv(material, "Kd", (float *)&Kd);
 	ospCommit(material);
 	
@@ -549,7 +549,7 @@ makePreloadedMaterials(void) {
 			return NULL;
 		}
 		
-		material = ospNewMaterial2("pathtracer", "OBJMaterial");
+		material = ospNewMaterial2("scivis", "OBJMaterial");
 		ospSet3f(material, "Kd", Kdr, Kdg, Kdb);
 		ospSet1f(material, "d", d);
 		ospSet3f(material, "Ks", Ksr, Ksg, Ksb);
@@ -613,6 +613,7 @@ parseBasicMaterial(FILE *input) {
 	}
 
 	material = makeBasicMaterial(r, g, b);
+	ospCommit(material);
 
 	return material;
 }
@@ -657,6 +658,72 @@ parseSpheres(OSPModel model, FILE *input) {
 }
 
 
+OSPData
+parseData(FILE *input, OSPDataType type) {
+	OSPData data;
+	void *value;
+	int length;
+	size_t numItems;
+	char c;
+
+	if (fscanf(input, "%d%c", &length, &c) != 2) {
+		exit(1);
+	}
+
+	fprintf(stderr, "data: %d ('%c')\n", length, c);
+
+	value = malloc(length);
+	if (fread(value, 1, length, input) != length) {
+		exit(2);
+	}
+
+	fprintf(stderr, "value: %d %d %d %d\n", ((unsigned char *)value)[0], ((unsigned char *)value)[1], ((unsigned char *)value)[2], ((unsigned char *)value)[3]);
+
+	switch (type) {
+	case OSP_FLOAT2: numItems = length / 2 / 4; break;
+	case OSP_FLOAT3: numItems = length / 3 / 4; break;
+	case OSP_FLOAT3A:
+	case OSP_FLOAT4: numItems = length / 4 / 4; break;
+	case OSP_INT3: numItems = length / 3 / 4; break;
+	case OSP_INT4: numItems = length / 4 / 4; break;
+	default:
+		fprintf(stderr, "oh no bad type %d\n", type);
+		exit(2);
+	}
+
+	data = ospNewData(numItems, type, value, 0);
+	ospCommit(data);
+	free(value);
+	return data;
+}
+
+
+OSPGeometry
+parseTriangleGeometry(FILE *input) {
+	OSPGeometry geometry;
+	OSPData vertex, normal, texcoord, index;
+
+	vertex = parseData(input, OSP_FLOAT3);
+	normal = parseData(input, OSP_FLOAT3);
+	texcoord = parseData(input, OSP_FLOAT2);
+	index = parseData(input, OSP_INT3);
+
+	geometry = ospNewGeometry("triangles");
+	ospSetData(geometry, "vertex", vertex);
+	ospSetData(geometry, "vertex.normal", normal);
+	ospSetData(geometry, "vertex.texcoord", texcoord);
+	ospSetData(geometry, "index", index);
+	ospCommit(geometry);
+
+	ospRelease(vertex);
+	ospRelease(normal);
+	ospRelease(texcoord);
+	ospRelease(index);
+
+	return geometry;
+}
+
+
 int
 main(int argc, const char **argv) {
 	FILE *input, *info, *error, *output;
@@ -694,7 +761,7 @@ main(int argc, const char **argv) {
 	lights = ospNewData(2, OSP_LIGHT, light_values, 0);
 
 	fprintf(info, "Creating Renderer\n");
-	renderer = ospNewRenderer("pathtracer");
+	renderer = ospNewRenderer("scivis");
 	
 	fprintf(info, "Initializing Camera\n");
 	ospSet3f(camera, "pos", 0.0, 0.0, 0.1);
@@ -736,7 +803,7 @@ main(int argc, const char **argv) {
 		OSPMaterial material;
 		float px, py, pz, ux, uy, uz, vx, vy, vz;
 		int quality, tile_index, n_cols;
-		int nsphere;
+		int nsphere, ntriangle;
 		
 		fprintf(info, "Waiting for request...\n");
 		if ((rv = fscanf(input, "%f %f %f %f %f %f %f %f %f %d %d %d", &px, &py, &pz, &ux, &uy, &uz, &vx, &vy, &vz, &quality, &tile_index, &n_cols)) != 12) {
@@ -746,16 +813,17 @@ error:
 			fflush(output);
 			break;
 		}
-
-		if ((rv = fscanf(input, "%d", &nsphere)) != 1) {
-			goto error;
-		}
-
+		
 		fprintf(info, "Got request\n");
 
 		model = ospNewModel();
 		
+		if ((rv = fscanf(input, "%d", &nsphere)) != 1) {
+			goto error;
+		}
+
 		for (i=0; i<nsphere; ++i) {
+			fprintf(info, "Parsing sphere %d/%d\n", i, nsphere);
 			geometry = parseSphere(input);
 			material = parseBasicMaterial(input);
 			
@@ -768,6 +836,24 @@ error:
 			ospRelease(material);
 		}
 
+		if ((rv = fscanf(input, "%d", &ntriangle)) != 1) {
+			goto error;
+		}
+
+		for (i=0; i<ntriangle; ++i) {
+			fprintf(info, "Parsing triangle %d/%d\n", i, ntriangle);
+			geometry = parseTriangleGeometry(input);
+			material = parseBasicMaterial(input);
+			
+			ospSetMaterial(geometry, material);
+			ospCommit(geometry);
+
+			ospAddGeometry(model, geometry);
+
+			ospRelease(geometry);
+			ospRelease(material);
+		}
+		
 		ospCommit(model);
 
 		ospSetObject(renderer, "model", model);

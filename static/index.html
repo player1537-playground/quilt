@@ -11,10 +11,76 @@
 <script src="https://rawcdn.githack.com/mrdoob/three.js/954e0e738cfb813357ce57b49b254366134b5b3a/build/three.min.js"></script>
 <script src="https://rawcdn.githack.com/mrdoob/three.js/954e0e738cfb813357ce57b49b254366134b5b3a/examples/js/controls/OrbitControls.js"></script>
 <script>
+THREE.OSPAttributes = function() {
+	var buffers = new WeakMap();
+
+	async function createBuffer( attribute ) {
+		var array = attribute.array;
+
+		if ( array instanceof Uint16Array ) {
+			var newArray = new Uint32Array( array.length );
+			for ( var i = 0, l = array.length; i < l; ++i ) {
+				newArray[i] = array[i];
+			}
+			array = newArray;
+		}
+
+		var url = '/buffer/';
+		var params = {
+			method: 'POST',
+			body: array,
+		};
+
+		var response = await fetch( url, params );
+		var id = await response.text();
+
+		return {
+			id: id,
+			version: attribute.version
+		};
+	}
+
+	async function updateBuffer( data, attribute ) {
+		data = await createBuffer( attribute );
+		buffers.set( attribute, data );
+	}
+
+	function get( attribute ) {
+		return buffers.get( attribute );
+	}
+
+	function remove( attribute ) {
+		var data = buffers.get( attribute );
+		if ( data ) {
+			buffers.delete( data );
+		}
+	}
+
+	async function update( attribute ) {
+		var data = buffers.get( attribute );
+		if (data === undefined ) {
+			data = await createBuffer( attribute );
+			buffers.set( attribute, data );
+		} else if ( data.version < attribute.version ) {
+			await updateBuffer( data, attribute );
+			data.version = attribute.version;
+		}
+		return data;
+	}
+
+	return {
+		get: get,
+		remove: remove,
+		update: update
+	};
+};
+
 THREE.OSPRenderer = function ( numColumns ) {
 	if ( numColumns === undefined ) {
 		numColumns = 1;
 	}
+
+	var attributes = new THREE.OSPAttributes();
 
 	var domElement = document.createElement( 'div' );
 	var imageElements = [];
@@ -73,18 +139,24 @@ THREE.OSPRenderer = function ( numColumns ) {
 		resetDomElement();
 	};
 
-	var encodeGeometry = function ( object, geometry, parts ) {
+	var encodeGeometry = async function ( object, geometry, parts ) {
 		if ( geometry.type === 'SphereGeometry' || geometry.type === 'SphereBufferGeometry' ) {
 			object.getWorldPosition( worldPosition );
 			parts.push( 'sphere' );
 			parts.push( worldPosition.x, worldPosition.y, worldPosition.z, geometry.parameters.radius );
-			return;
+		} else if ( geometry.type === 'TorusBufferGeometry' ) {
+			parts.push( 'triangles' );
+			var triverts = await attributes.update( geometry.getAttribute( 'position' ) );
+			var trinorms = await attributes.update( geometry.getAttribute( 'normal' ) );
+			var triuv = await attributes.update( geometry.getAttribute( 'uv' ) );
+			var triindex = await attributes.update( geometry.getIndex() );
+			parts.push( triverts.id, trinorms.id, triuv.id, triindex.id );
+		} else {
+			throw 'Unknown geometry: ' + geometry.type;
 		}
-
-		throw 'Unknown geometry: ' + geometry.type;
 	};
 
-	var encodeMaterial = function ( object, material, parts ) {
+	var encodeMaterial = async function ( object, material, parts ) {
 		if ( material.type === 'MeshBasicMaterial' ) {
 			if ( material.color && !material.map ) {
 				parts.push( material.color.r, material.color.g, material.color.b );
@@ -95,24 +167,24 @@ THREE.OSPRenderer = function ( numColumns ) {
 		throw 'Unknown material: ' + material.type;
 	};
 
-	var encodeObject = function ( object, parts ) {
+	var encodeObject = async function ( object, parts ) {
 		if ( object.type === 'Mesh' ) {
-			encodeGeometry( object, object.geometry, parts );
-			encodeMaterial( object, object.material, parts );
+			await encodeGeometry( object, object.geometry, parts );
+			await encodeMaterial( object, object.material, parts );
 		}
 
 		for ( var i = 0, l = object.children.length; i < l; ++i ) {
-			encodeObject( object.children[ i ], parts );
+			await encodeObject( object.children[ i ], parts );
 		}
 	};
 
-	var encodeScene = function ( scene ) {
+	var encodeScene = async function ( scene ) {
 		var parts = ['scene'];
-		encodeObject( scene, parts );
+		await encodeObject( scene, parts );
 		return parts.join(',');
 	};
 
-	var encodeCamera = function ( camera ) {
+	var encodeCamera = async function ( camera ) {
 		camera.getWorldDirection( worldDirection );
 		camera.getWorldPosition( worldPosition );
 		worldUp.set( 0, 1, 0 );
@@ -145,8 +217,8 @@ THREE.OSPRenderer = function ( numColumns ) {
 
 		var parts = [
 			'image',
-			encodeScene( scene ),
-			encodeCamera( camera ),
+			await encodeScene( scene ),
+			await encodeCamera( camera ),
 			_quality,
 		];
 
@@ -192,15 +264,10 @@ const controls = new THREE.OrbitControls(camera, renderer.domElement);
 
 const scene = new THREE.Scene();
 
-for (let i=0; i<10; i+=3)
-for (let j=0; j<10; j+=3)
-for (let k=0; k<10; k+=3) {
-	const geometry = new THREE.SphereBufferGeometry(0.05);
-	const material = new THREE.MeshBasicMaterial({ color: new THREE.Color(i / 10, j / 10, k / 10), side: THREE.DoubleSide });
-	const mesh = new THREE.Mesh(geometry, material);
-	mesh.position.set((i-5)/10, (j-5)/10, (k-5)/10);
-	scene.add(mesh);
-}
+const geometry = new THREE.TorusBufferGeometry(8/10/2, 2.8/10/2, 6, 10);
+const material = new THREE.MeshBasicMaterial({ color: 0xff00ff });
+const mesh = new THREE.Mesh(geometry, material);
+scene.add(mesh);
 
 step();
 function step() {
