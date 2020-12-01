@@ -14,6 +14,7 @@ cwd=1
 interactive=1
 script=
 port=8820
+constraint=
 
 [ -f env.sh ] && . env.sh
 
@@ -68,6 +69,7 @@ create() {
 		${cwd:+--mount type=bind,src=$PWD,dst=$PWD} \
 		${data:+--mount type=bind,src=$data,dst=$data} \
 		${port:+-p $port:$port} \
+		${constraint:+--constraint $constraint} \
 		${registry:?}/$tag \
 		"$@"
 }
@@ -82,6 +84,20 @@ logs() {
 
 python() { python3 "$@"; }
 python3() { python3.7 "$@"; }
-python3.7() { run python3.7 "$@"; }
+python3.7() { run python3.7 -u "$@"; }
+
+server() {
+	python server.py \
+		${port:+--port=$port} \
+		--exe /opt/app/server \
+		"$@"
+}
+
+create-server() {
+	run() { create "$@"; }
+	server \
+		${name:+--service-name=$name} \
+		"$@"
+}
 
 "$@"

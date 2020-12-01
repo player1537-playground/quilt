@@ -10,7 +10,9 @@ RUN apt-get update && \
 
 RUN python3.7 -m pip install \
     Pillow \
-    pywavefront
+    pywavefront \
+    dnspython \
+    requests
 
 WORKDIR /opt
 ARG ospray_version=1.8.5
@@ -32,5 +34,5 @@ WORKDIR /opt/app
 COPY server.py ./
 COPY static ./static
 
-ENTRYPOINT ["python3.7", "-u", "server.py", "/opt/app/server"]
-CMD ["--port=8820"]
+ENTRYPOINT []
+CMD []

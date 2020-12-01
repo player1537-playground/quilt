@@ -14,11 +14,16 @@ from math import sqrt
 from pathlib import Path
 from typing import NewType
 from uuid import uuid4
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dns.resolver import Resolver
 from PIL import Image
+import requests
 
 
 _g_subprocess: Subprocess = None
 _g_buffers: Buffers = None
+_g_service_name: str = None
+_g_port: int = None
 
 UUID = NewType('UUID', str)
 
@@ -79,15 +84,63 @@ class Buffers:
 	def create(cls) -> Buffers:
 		lookup = {}
 		return cls(lookup)
+	
+	def __contains__(self, id: UUID) -> bool:
+		return id in self.lookup
 
 	def __getitem__(self, id: UUID) -> Buffer:
-		return self.lookup[id]
+		try:
+			return self.lookup[id]
+		except KeyError:
+			buffer = self._request_from_others(id)
+			self.lookup[id] = buffer
+			return buffer
 	
 	def add(self, data: bytes) -> Buffer:
 		id = str(uuid4())
 		buffer = Buffer(id, data)
 		self.lookup[id] = buffer
 		return buffer
+	
+	@staticmethod
+	def _make_request(host: str, id: UUID) -> requests.Request:
+		with requests.get(f'http://{host}:{_g_port}/buffer/{id}') as r:
+			r.raise_for_status()
+			return r.content
+
+	def _request_from_others(self, id: UUID) -> Buffer:
+		if _g_service_name is None:
+			raise NotImplementedError
+
+		print(f'Asking other hosts for {id}')
+
+		resolver = Resolver()
+		hosts = []
+		for answer in resolver.query(f'tasks.{_g_service_name}.'):
+			answer = str(answer)
+			hosts.append(answer)
+		
+		print(f'Got hosts: {hosts!r}')
+
+		executor = ThreadPoolExecutor(max_workers=len(hosts))
+		futures = []
+		for host in hosts:
+			future = executor.submit(self._make_request, host, id)
+			futures.append(future)
+
+		for future in as_completed(futures):
+			try:
+				data = future.result()
+			except:
+				continue
+			else:
+				break
+
+		for future in futures:
+			future.cancel()
+
+		print(f'Done! Buffer = ', data[0], data[1], data[2], data[3])
+		return Buffer(id, data)
 
 
 class RequestHandler(SimpleHTTPRequestHandler):
@@ -103,6 +156,8 @@ class RequestHandler(SimpleHTTPRequestHandler):
 			super().do_GET()
 		elif self.path.startswith('/image/'):
 			self.do_GET_image()
+		elif self.path.startswith('/buffer/'):
+			self.do_GET_buffer()
 		else:
 			raise NotImplementedError
 	
@@ -201,6 +256,16 @@ class RequestHandler(SimpleHTTPRequestHandler):
 
 		self.send('image/png', content)
 	
+	def do_GET_buffer(self):
+		# GET /buffer/:id
+		_, _, id = self.path.split('/')
+
+		if id not in _g_buffers:
+			self.send('text/plain', b'404', response=404)
+		else:
+			buffer = _g_buffers[id]
+			self.send('application/octet-stream', buffer.data)
+	
 	def do_POST(self):
 		length = self.headers['content-length']
 		nbytes = int(length)
@@ -220,13 +285,13 @@ class RequestHandler(SimpleHTTPRequestHandler):
 		content = buffer.id.encode('utf-8')
 		self.send('text/plain', content)
 	
-	def send(self, content_type, content):
+	def send(self, content_type, content, *, response=200):
 		connection = self.headers['connection']
 		keep_alive = False
 		if connection == 'keep-alive':
 			keep_alive = True
 		
-		self.send_response(200)
+		self.send_response(response)
 		self.send_header('Content-Type', content_type)
 		self.send_header('Content-Length', str(len(content)))
 		self.send_header('Access-Control-Allow-Origin', self.headers['origin'])
@@ -240,7 +305,7 @@ class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
 	pass
 
 
-def main(bind, port, exe):
+def main(bind, port, exe, service_name):
 	buffers = Buffers.create()
 
 	env = {}
@@ -252,6 +317,12 @@ def main(bind, port, exe):
 
 	global _g_buffers
 	_g_buffers = buffers
+
+	global _g_service_name
+	_g_service_name = service_name
+
+	global _g_port
+	_g_port = port
 	
 	address = (bind, port)
 	print(f'Listening on {address!r}')
@@ -265,7 +336,8 @@ def cli():
 	parser = argparse.ArgumentParser()
 	parser.add_argument('--port', type=int, default=8820)
 	parser.add_argument('--bind', default='')
-	parser.add_argument('exe')
+	parser.add_argument('--service-name')
+	parser.add_argument('--exe', required=True)
 	args = vars(parser.parse_args())
 
 	main(**args)

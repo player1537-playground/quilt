@@ -6,7 +6,27 @@
 	padding: 0;
 	box-sizing: border-box;
 }
+
+body {
+	display: grid;
+	grid-template-columns: 10rem 1fr;
+	/* grid-template-rows: 3rem 1fr 1fr; */
+	grid-template-areas: "a a" "b c" "d d";
+}
+
+.ga { grid-area: a; }
+.gb { grid-area: b; }
+.gc { grid-area: c; }
+.gd { grid-area: d; }
+.ge { grid-area: e; }
+.gf { grid-area: f; }
+
+p {
+	margin-block-start: 1em;
+	margin-block-end: 1em;
+}
 </style>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/kognise/water.css@latest/dist/light.css">
 <body>
 <script src="https://rawcdn.githack.com/mrdoob/three.js/954e0e738cfb813357ce57b49b254366134b5b3a/build/three.min.js"></script>
 <script src="https://rawcdn.githack.com/mrdoob/three.js/954e0e738cfb813357ce57b49b254366134b5b3a/examples/js/controls/OrbitControls.js"></script>
@@ -144,7 +164,7 @@ THREE.OSPRenderer = function ( numColumns ) {
 			object.getWorldPosition( worldPosition );
 			parts.push( 'sphere' );
 			parts.push( worldPosition.x, worldPosition.y, worldPosition.z, geometry.parameters.radius );
-		} else if ( geometry.type === 'TorusBufferGeometry' ) {
+		} else if ( geometry instanceof THREE.BufferGeometry ) {
 			parts.push( 'triangles' );
 			var triverts = await attributes.update( geometry.getAttribute( 'position' ) );
 			var trinorms = await attributes.update( geometry.getAttribute( 'normal' ) );
@@ -238,15 +258,73 @@ THREE.OSPRenderer = function ( numColumns ) {
 
 	this.render = function ( scene, camera ) {
 		if (asyncRenderPromise !== null) {
-			return false;
+			return;
 		}
 
 		asyncRenderPromise = asyncRender( scene, camera ).then( afterRender );
 
-		return true;
+		return asyncRenderPromise;
 	};
 };
 </script>
+<h1 class=ga>Quilt</h1>
+<div class=gb>
+<h3>Controls</h3>
+<label>Quality:
+<select id="quality">
+	<option selected>64</option>
+	<option>128</option>
+	<option>256</option>
+	<option>512</option>
+	<option>1024</option>
+</select>
+</label>
+<label>Size:
+<select id="size">
+	<option>64</option>
+	<option>128</option>
+	<option selected>256</option>
+	<option>512</option>
+	<option>1024</option>
+</select>
+</label>
+<label>Columns:
+<select id="columns">
+	<option selected>1</option>
+	<option>2</option>
+	<option>4</option>
+</select>
+</label>
+</div>
+<div class=gc id="hyperimage"></div>
+<div class=gd>
+<p>This is a demonstration of a project that aims to make OSPRay seamlessly usable in the browser.
+Ideally, using OSPRay as a remote renderer shouldn't be any different than directly using THREE.js and WebGL.
+The project internally uses a Tapestry-like API to control the OSPRay instance.</p>
+<p>The main trick behind getting this to work is to mimic the THREE.js WebGL API and make our own custom Renderer.
+This Renderer manages all the communication with the backend web server
+and transparently uploads any vertex, normal, UV, and index attribute data
+(but only if it has been updated or newly created).</p>
+<p>There are two types of geometries supported and one type of material.
+These are: sphere geometries, triangle mesh geometries, and basic materials.
+Due to how THREE.js works, spheres could be subsumed into the triangle mesh code,
+but OSPRay natively supports mathematically precise spheres, so we can leverage that to render them perfectly.</p>
+<p>There is one departure in this project from the classical Tapestry API: this backend isn't entirely stateless.
+This project has to encode the scene graph from the web page so that it can be ingested into OSPRay.
+The easiest mechanism is to add everything to the URL,
+but then the URLs are subject to browser-specific limits on the length.</p>
+<p>To get around that, this project makes use of what it calls "Buffers."
+These are immutable objects shared with the backend before rendering that can be referred to by name in the encoded scenes.
+Commonly used buffers are: vertices, normals, UVs, and face indices.
+In this demo, they range in size from 14 kB to 40 kB, however there is no current limit.</p>
+<p>This project is intended to work with a cluster of backend servers.
+One problem with buffers is that when you upload, you're only uploading to one server instance,
+and none of the other ones know about it.
+This means that if a rendering request goes to a different instance than the one that the buffer was uploaded to,
+then it won't be able to complete the request.
+To solve this problem, the backend will make inter-requests to try to find which one has the required buffer.
+As it gets used more, more instances will be able to successfully respond.</p>
+</div>
 <script>
 const quality = 64;
 const numColumns = 1;
@@ -255,24 +333,36 @@ const width = height = 256;
 const renderer = new THREE.OSPRenderer(numColumns);
 renderer.setSize(width, height);
 renderer.setQuality(quality);
-document.body.appendChild(renderer.domElement);
+document.getElementById('hyperimage').appendChild(renderer.domElement);
+
+document.getElementById('quality').addEventListener('change', (e) => {
+	renderer.setQuality(+e.target.value);
+});
+
+document.getElementById('size').addEventListener('change', (e) => {
+	renderer.setSize(+e.target.value, +e.target.value);
+});
+
+document.getElementById('columns').addEventListener('change', (e) => {
+	renderer.setColumns(+e.target.value);
+});
 
 const camera = new THREE.OrthographicCamera(-width/2, width/2, height/2, -height/2, 0.01, 10000);
-camera.position.set(0, 0, 1);
+camera.position.set(0, 0, 3);
 
 const controls = new THREE.OrbitControls(camera, renderer.domElement);
 
-const scene = new THREE.Scene();
+let scene = new THREE.Scene();
 
-const geometry = new THREE.TorusBufferGeometry(8/10/2, 2.8/10/2, 6, 10);
-const material = new THREE.MeshBasicMaterial({ color: 0xff00ff });
+const geometry = new THREE.TorusKnotBufferGeometry(10/10, 3/10, 100, 16);
+const material = new THREE.MeshBasicMaterial({ color: 0x880088 });
 const mesh = new THREE.Mesh(geometry, material);
 scene.add(mesh);
 
 step();
-function step() {
-	requestAnimationFrame(step);
+async function step() {
 	controls.update();
-	renderer.render(scene, camera);
+	await renderer.render(scene, camera);
+	requestAnimationFrame(step);
 }
 </script>
